@@ -1,0 +1,84 @@
+<resources>
+    <string name="app_name">SYED</string>
+    <string name="tagline">Share. Connect. Simply.</string>
+    
+    <!-- Home Actions -->
+    <string name="action_send">Send</string>
+    <string name="action_receive">Receive</string>
+    <string name="action_scan_qr">Scan QR</string>
+    <string name="action_nearby">Nearby Devices</string>
+    <string name="recent_transfers">Recent Transfers</string>
+    <string name="view_all">View All</string>
+    <string name="no_transfers_yet">No transfers yet</string>
+    <string name="no_transfers_desc">Files you send or receive will appear here</string>
+    <string name="files_count">%1$d files</string>
+    
+    <!-- Profile & Onboarding -->
+    <string name="welcome_to_syed">Welcome to SYED</string>
+    <string name="onboarding_p2p_desc">Share files directly with nearby devices at high speed.</string>
+    <string name="onboarding_offline_desc">100% offline peer-to-peer. No internet or data needed.</string>
+    <string name="onboarding_privacy_desc">No account required. Your files and identity stay private.</string>
+    <string name="get_started">Get Started</string>
+    <string name="setup_profile">Setup Your Profile</string>
+    <string name="display_name">Display Name</string>
+    <string name="display_name_hint">e.g. Syed Taha</string>
+    <string name="device_name">Device Name</string>
+    <string name="save_and_continue">Save &amp; Continue</string>
+    <string name="skip">Skip</string>
+    
+    <!-- Send & File Selection -->
+    <string name="select_files">Select Files</string>
+    <string name="category_all">All</string>
+    <string name="category_photos">Photos</string>
+    <string name="category_videos">Videos</string>
+    <string name="category_audio">Audio</string>
+    <string name="category_documents">Documents</string>
+    <string name="category_apks">APKs</string>
+    <string name="category_archives">Archives</string>
+    <string name="selected_files_summary">%1$d files selected (%2$s)</string>
+    <string name="action_continue">Continue</string>
+    <string name="add_more">Add More</string>
+    <string name="remove">Remove</string>
+    <string name="choose_connection_method">Choose Connection</string>
+    <string name="qr_connection">QR Code Connection</string>
+    <string name="qr_connection_desc">Generate a QR code for the receiver to scan</string>
+    <string name="nearby_connection">Nearby Device</string>
+    <string name="nearby_connection_desc">Transfer directly to a discoverable nearby phone</string>
+    <string name="group_sharing">Group Sharing</string>
+    <string name="group_sharing_desc">Share with multiple nearby receivers at once</string>
+    
+    <!-- Transfer & Connection -->
+    <string name="scan_to_connect">Scan to Connect</string>
+    <string name="scan_instructions">Scan this QR code with the receiver\'s SYED app to start the transfer</string>
+    <string name="ready_to_receive">Ready to Receive</string>
+    <string name="ready_to_receive_desc">Keep this screen open or scan a sender\'s QR code</string>
+    <string name="qr_expires_in">Session expires in %1$s</string>
+    <string name="incoming_transfer">Incoming Transfer</string>
+    <string name="incoming_request_desc">%1$s wants to send you %2$d files (%3$s)</string>
+    <string name="accept">Accept</string>
+    <string name="decline">Decline</string>
+    <string name="cancel">Cancel</string>
+    <string name="retry">Retry</string>
+    <string name="transferring">Transferring…</string>
+    <string name="completed">Completed</string>
+    <string name="failed">Failed</string>
+    <string name="cancelled">Cancelled</string>
+    <string name="transfer_speed">%1$s/s</string>
+    <string name="remaining_time">%1$d seconds remaining</string>
+    
+    <!-- Duplicate Dialog -->
+    <string name="file_already_exists">File Already Exists</string>
+    <string name="file_already_exists_desc">A file named \"%1$s\" already exists in your downloads.</string>
+    <string name="replace">Replace</string>
+    <string name="keep_both">Keep Both</string>
+    
+    <!-- Settings & Details -->
+    <string name="settings">Settings</string>
+    <string name="storage_browser">File Manager</string>
+    <string name="history">Transfer History</string>
+    <string name="privacy_title">Privacy &amp; Offline Guarantee</string>
+    <string name="privacy_desc">SYED never uploads your personal data or files to any cloud server. All connections are direct device-to-device.</string>
+    <string name="camera_permission_needed">Camera access is needed to scan connection QR codes.</string>
+    <string name="storage_permission_needed">Storage access is needed to select and save transferred files.</string>
+    <string name="grant_permission">Grant Permission</string>
+</resources>
