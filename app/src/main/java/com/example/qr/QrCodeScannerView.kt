@@ -28,7 +28,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.ui.theme.SyedCyan
+import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
@@ -123,7 +125,14 @@ private class QrCodeAnalyzer(
     private val onQrCodeScanned: (String) -> Unit
 ) : ImageAnalysis.Analyzer {
 
-    private val reader = MultiFormatReader()
+    private val reader = MultiFormatReader().apply {
+        val hints = mapOf<com.google.zxing.DecodeHintType, Any>(
+            com.google.zxing.DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
+            com.google.zxing.DecodeHintType.TRY_HARDER to java.lang.Boolean.TRUE,
+            com.google.zxing.DecodeHintType.CHARACTER_SET to "UTF-8"
+        )
+        setHints(hints)
+    }
     private var isScanning = true
 
     override fun analyze(image: ImageProxy) {

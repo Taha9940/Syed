@@ -66,7 +66,8 @@ class UdpDiscoveryManager(private val context: Context) {
     private fun parseBeacon(jsonString: String, senderIp: String) {
         try {
             val json = JSONObject(jsonString)
-            if (json.optString("type") == "SYED_BEACON") {
+            val type = json.optString("type")
+            if (type == "TAHA_BEACON" || type == "SYED_BEACON") {
                 val id = json.optString("id")
                 val name = json.optString("name")
                 val port = json.optInt("port", 8888)
@@ -119,7 +120,7 @@ class UdpDiscoveryManager(private val context: Context) {
 
                 while (isActive) {
                     val json = JSONObject().apply {
-                        put("type", "SYED_BEACON")
+                        put("type", "TAHA_BEACON")
                         put("id", deviceId)
                         put("name", displayName)
                         put("host", myIp)

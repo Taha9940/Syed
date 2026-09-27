@@ -1,7 +1,7 @@
 package com.example.data.model
 
 data class UserProfile(
-    val displayName: String = "Syed User",
+    val displayName: String = "Taha User",
     val photoUri: String? = null,
     val deviceName: String = android.os.Build.MODEL ?: "Android Device"
 ) {
@@ -13,7 +13,7 @@ data class UserProfile(
             } else if (displayName.isNotBlank()) {
                 displayName.take(2).uppercase()
             } else {
-                "SY"
+                "TH"
             }
         }
 }
@@ -49,7 +49,7 @@ data class SessionFileMeta(
 )
 
 data class AppSettings(
-    val defaultDownloadFolder: String = "Download/SYED",
+    val defaultDownloadFolder: String = "Download/Taha",
     val autoAccept: Boolean = false,
     val connectionTimeoutSeconds: Int = 30,
     val transferConfirmation: Boolean = true,

@@ -119,7 +119,7 @@ fun QrConnectScreen(
                 // QR Code Card
                 Card(
                     modifier = Modifier
-                        .size(280.dp)
+                        .size(320.dp)
                         .testTag("qr_code_card"),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -135,7 +135,8 @@ fun QrConnectScreen(
                             Image(
                                 bitmap = qrBitmap.asImageBitmap(),
                                 contentDescription = "Transfer Session QR Code",
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                filterQuality = androidx.compose.ui.graphics.FilterQuality.None
                             )
                         } else {
                             Text("Generating QR…", color = Color.Gray)
@@ -143,7 +144,15 @@ fun QrConnectScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = stringResource(id = R.string.simple_qr_desc),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SyedCyan
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Expiration Timer & Network Indicator
                 Row(

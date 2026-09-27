@@ -31,7 +31,10 @@ import com.example.data.repository.TransferHistoryRepository
 import com.example.network.NetworkUtils
 import com.example.network.UdpDiscoveryManager
 import com.example.network.p2p.ClientTransferProgress
+import com.example.network.p2p.ConnectResult
+import com.example.network.p2p.ConnectionApprovalRequest
 import com.example.network.p2p.DuplicatePolicy
+import com.example.network.p2p.PublicMediaStorageHelper
 import com.example.network.p2p.ReceiverProgress
 import com.example.network.p2p.SyedTransferClient
 import com.example.network.p2p.SyedTransferServer
@@ -64,6 +67,9 @@ sealed class Screen {
     object History : Screen()
     object FileManager : Screen()
     object Settings : Screen()
+    object ConnectionHub : Screen()
+    object CreateSession : Screen()
+    object JoinSession : Screen()
 }
 
 data class IncomingTransferRequest(
@@ -162,6 +168,13 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
     // Nearby Devices
     val nearbyDevices: StateFlow<List<PeerDevice>> = udpDiscovery.nearbyDevices
 
+    // Method 1: Create & Join State
+    val pendingApprovalRequest: StateFlow<ConnectionApprovalRequest?> = transferServer.pendingApprovalRequest
+    val connectedPeerName: StateFlow<String?> = transferServer.connectedPeerName
+
+    private val _isConnectingToPeer = MutableStateFlow<String?>(null)
+    val isConnectingToPeer: StateFlow<String?> = _isConnectingToPeer.asStateFlow()
+
     // Status / Toast Banner
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
@@ -199,7 +212,7 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
     fun completeOnboarding(name: String, photoUri: String?) {
         viewModelScope.launch {
             val device = userProfile.value.deviceName
-            profileRepository.saveProfile(name.ifBlank { "Syed User" }, photoUri, device)
+            profileRepository.saveProfile(name.ifBlank { "Taha User" }, photoUri, device)
             profileRepository.completeOnboarding()
             _currentScreen.value = Screen.Home
         }
@@ -271,9 +284,18 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
                 }
             }
 
-            val current = _selectedFiles.value.toMutableList()
-            current.addAll(added)
-            _selectedFiles.value = current
+            val currentSelected = _selectedFiles.value.toMutableList()
+            currentSelected.addAll(added)
+            _selectedFiles.value = currentSelected
+
+            val currentDevice = _deviceFiles.value.toMutableList()
+            // Prepend new files if not already present
+            for (newF in added) {
+                if (currentDevice.none { it.uriString == newF.uriString }) {
+                    currentDevice.add(0, newF)
+                }
+            }
+            _deviceFiles.value = currentDevice
             showStatus("${added.size} files added")
         }
     }
@@ -301,50 +323,137 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
             val context = getApplication<Application>()
 
             try {
-                // Query MediaStore Files
-                val projection = arrayOf(
-                    MediaStore.Files.FileColumns._ID,
-                    MediaStore.Files.FileColumns.DISPLAY_NAME,
-                    MediaStore.Files.FileColumns.SIZE,
-                    MediaStore.Files.FileColumns.MIME_TYPE,
-                    MediaStore.Files.FileColumns.DATE_MODIFIED
+                // 1. Query Images directly from MediaStore
+                val imgProjection = arrayOf(
+                    MediaStore.Images.Media._ID,
+                    MediaStore.Images.Media.DISPLAY_NAME,
+                    MediaStore.Images.Media.SIZE,
+                    MediaStore.Images.Media.MIME_TYPE,
+                    MediaStore.Images.Media.DATE_MODIFIED
                 )
-
-                val uri = MediaStore.Files.getContentUri("external")
                 context.contentResolver.query(
-                    uri,
-                    projection,
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    imgProjection,
                     null,
                     null,
-                    "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC LIMIT 150"
+                    "${MediaStore.Images.Media.DATE_MODIFIED} DESC LIMIT 200"
                 )?.use { cursor ->
-                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
-                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-                    val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+                    val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
 
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idCol)
-                        val name = cursor.getString(nameCol) ?: "file_$id"
+                        val name = cursor.getString(nameCol) ?: "photo_$id.jpg"
                         val size = cursor.getLong(sizeCol)
-                        val mime = cursor.getString(mimeCol) ?: "application/octet-stream"
-                        val contentUri = ContentUris.withAppendedId(uri, id)
+                        val mime = cursor.getString(mimeCol) ?: "image/jpeg"
+                        val contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
 
                         list.add(
                             SharedFile(
-                                id = id.toString(),
+                                id = "img_$id",
                                 name = name,
                                 size = size,
                                 mimeType = mime,
                                 uriString = contentUri.toString(),
-                                category = detectCategory(name, mime),
-                                isApk = name.endsWith(".apk", ignoreCase = true)
+                                category = FileCategory.PHOTOS,
+                                isApk = false
                             )
                         )
                     }
                 }
             } catch (e: Exception) {
-                Log.e("SyedViewModel", "Error loading MediaStore files", e)
+                Log.e("TahaViewModel", "Error loading MediaStore images", e)
+            }
+
+            try {
+                // 2. Query Videos directly from MediaStore
+                val vidProjection = arrayOf(
+                    MediaStore.Video.Media._ID,
+                    MediaStore.Video.Media.DISPLAY_NAME,
+                    MediaStore.Video.Media.SIZE,
+                    MediaStore.Video.Media.MIME_TYPE,
+                    MediaStore.Video.Media.DATE_MODIFIED
+                )
+                context.contentResolver.query(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    vidProjection,
+                    null,
+                    null,
+                    "${MediaStore.Video.Media.DATE_MODIFIED} DESC LIMIT 150"
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+                    val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.MIME_TYPE)
+
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val name = cursor.getString(nameCol) ?: "video_$id.mp4"
+                        val size = cursor.getLong(sizeCol)
+                        val mime = cursor.getString(mimeCol) ?: "video/mp4"
+                        val contentUri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+
+                        list.add(
+                            SharedFile(
+                                id = "vid_$id",
+                                name = name,
+                                size = size,
+                                mimeType = mime,
+                                uriString = contentUri.toString(),
+                                category = FileCategory.VIDEOS,
+                                isApk = false
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TahaViewModel", "Error loading MediaStore videos", e)
+            }
+
+            try {
+                // 3. Query Audio directly from MediaStore
+                val audProjection = arrayOf(
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.SIZE,
+                    MediaStore.Audio.Media.MIME_TYPE
+                )
+                context.contentResolver.query(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    audProjection,
+                    null,
+                    null,
+                    "${MediaStore.Audio.Media.DATE_MODIFIED} DESC LIMIT 100"
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                    val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val name = cursor.getString(nameCol) ?: "audio_$id.mp3"
+                        val size = cursor.getLong(sizeCol)
+                        val mime = cursor.getString(mimeCol) ?: "audio/mpeg"
+                        val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+
+                        list.add(
+                            SharedFile(
+                                id = "aud_$id",
+                                name = name,
+                                size = size,
+                                mimeType = mime,
+                                uriString = contentUri.toString(),
+                                category = FileCategory.AUDIO,
+                                isApk = false
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("TahaViewModel", "Error loading MediaStore audio", e)
             }
 
             // Also load user-installed non-system APKs for APK Sharing
@@ -373,6 +482,14 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (_: Exception) {}
 
+            // Retain any already picked files
+            val currentDeviceFiles = _deviceFiles.value
+            for (df in currentDeviceFiles) {
+                if (list.none { it.uriString == df.uriString }) {
+                    list.add(0, df)
+                }
+            }
+
             _deviceFiles.value = list
         }
     }
@@ -391,7 +508,7 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
     }
 
     // QR Sender Session Setup
-    fun startSenderSession(isGroup: Boolean = false, groupName: String = "SYED Group") {
+    fun startSenderSession(isGroup: Boolean = false, groupName: String = "Taha Group") {
         val files = _selectedFiles.value
         if (files.isEmpty()) {
             showStatus("Please select at least one file to send")
@@ -480,7 +597,7 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
         if (session != null) {
             connectToSession(session.host, session.port, session.token)
         } else {
-            showStatus("Invalid SYED QR code")
+            showStatus("Invalid Taha QR code")
         }
     }
 
@@ -557,13 +674,128 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
         showStatus("Transfer cancelled")
     }
 
-    // Nearby Discovery
+    // Nearby Discovery & Method 1 (Create & Join)
     fun startNearbyDiscovery() {
         udpDiscovery.startListening(viewModelScope)
     }
 
     fun stopNearbyDiscovery() {
         udpDiscovery.stopListening()
+    }
+
+    fun startCreateSession() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val hostIp = NetworkUtils.getLocalIpAddress(context)
+            val sessionId = UUID.randomUUID().toString()
+            val token = UUID.randomUUID().toString().take(10)
+            val files = _selectedFiles.value
+
+            val session = TransferSession(
+                sessionId = sessionId,
+                token = token,
+                host = hostIp,
+                port = SyedTransferServer.DEFAULT_PORT,
+                senderName = userProfile.value.displayName,
+                files = files.map {
+                    SessionFileMeta(
+                        id = it.id,
+                        name = it.name,
+                        size = it.size,
+                        mimeType = it.mimeType,
+                        checksum = ""
+                    )
+                },
+                expiresAt = System.currentTimeMillis() + (15 * 60 * 1000),
+                isGroup = false,
+                groupName = ""
+            )
+
+            val actualPort = transferServer.start(viewModelScope, session, files) { peerName ->
+                showStatus("$peerName connected!")
+            }
+
+            val finalSession = session.copy(port = actualPort)
+            _activeSession.value = finalSession
+
+            // Broadcast on UDP discovery for nearby devices without camera scanning
+            udpDiscovery.startBroadcasting(
+                scope = viewModelScope,
+                deviceId = sessionId,
+                displayName = userProfile.value.displayName,
+                serverPort = actualPort,
+                token = token,
+                status = if (files.isNotEmpty()) "Ready to send ${files.size} files" else "Ready to connect"
+            )
+
+            startExpiryCountdown()
+
+            withContext(Dispatchers.Main) {
+                navigateTo(Screen.CreateSession)
+            }
+        }
+    }
+
+    fun acceptConnectionApproval(requestId: String) {
+        transferServer.acceptConnectionRequest(requestId)
+        showStatus("Connection accepted!")
+    }
+
+    fun rejectConnectionApproval(requestId: String) {
+        transferServer.rejectConnectionRequest(requestId)
+        showStatus("Connection rejected")
+    }
+
+    fun connectToNearbyPeer(device: PeerDevice) {
+        if (device.token.isBlank()) {
+            showStatus("Device ${device.name} is not ready for connection")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _isConnectingToPeer.value = device.name
+            showStatus("Connecting to ${device.name}…")
+            val myName = userProfile.value.displayName
+            val result = transferClient.requestConnection(
+                host = device.host,
+                port = device.port,
+                token = device.token,
+                clientName = myName
+            )
+
+            _isConnectingToPeer.value = null
+
+            when (result) {
+                is ConnectResult.Success -> {
+                    showStatus("Connected with ${result.senderName}!")
+                    // Check if sender has files ready to transfer
+                    val manifest = transferClient.fetchManifest(device.host, device.port, result.token, myName)
+                    if (manifest != null && manifest.second.isNotEmpty()) {
+                        val (senderName, files) = manifest
+                        _incomingRequest.value = IncomingTransferRequest(
+                            host = device.host,
+                            port = device.port,
+                            token = result.token,
+                            senderName = senderName,
+                            files = files
+                        )
+                    } else if (_selectedFiles.value.isNotEmpty()) {
+                        startSenderSession(isGroup = false)
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            showStatus("Connected to ${result.senderName}. Choose files to send.")
+                            navigateTo(Screen.Send)
+                        }
+                    }
+                }
+                is ConnectResult.Rejected -> {
+                    showStatus(result.message)
+                }
+                is ConnectResult.Error -> {
+                    showStatus("Connection failed: ${result.message}")
+                }
+            }
+        }
     }
 
     // Transfer History Management
@@ -585,14 +817,22 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
         if (filePath.isNullOrBlank()) return
         val context = getApplication<Application>()
         try {
-            val file = File(filePath)
-            if (!file.exists()) {
-                showStatus("File does not exist on storage")
-                return
+            val uri: Uri
+            val mimeType: String
+            if (filePath.startsWith("content://")) {
+                uri = Uri.parse(filePath)
+                mimeType = context.contentResolver.getType(uri) ?: "*/*"
+            } else {
+                val file = File(filePath)
+                if (!file.exists()) {
+                    showStatus("File does not exist on storage")
+                    return
+                }
+                uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                mimeType = PublicMediaStorageHelper.resolveMimeType(file.name, context.contentResolver.getType(uri) ?: "")
             }
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+                setDataAndType(uri, mimeType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
@@ -605,14 +845,22 @@ class SyedMainViewModel(application: Application) : AndroidViewModel(application
         if (filePath.isNullOrBlank()) return
         val context = getApplication<Application>()
         try {
-            val file = File(filePath)
-            if (!file.exists()) {
-                showStatus("File not found")
-                return
+            val uri: Uri
+            val mimeType: String
+            if (filePath.startsWith("content://")) {
+                uri = Uri.parse(filePath)
+                mimeType = context.contentResolver.getType(uri) ?: "*/*"
+            } else {
+                val file = File(filePath)
+                if (!file.exists()) {
+                    showStatus("File not found")
+                    return
+                }
+                uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                mimeType = PublicMediaStorageHelper.resolveMimeType(file.name, context.contentResolver.getType(uri) ?: "")
             }
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             val intent = Intent(Intent.ACTION_SEND).apply {
-                type = context.contentResolver.getType(uri) ?: "*/*"
+                type = mimeType
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             }

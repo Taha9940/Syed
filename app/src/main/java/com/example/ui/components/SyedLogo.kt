@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -28,28 +29,33 @@ import com.example.ui.theme.SyedCyan
 import com.example.ui.theme.SyedNavy
 
 @Composable
-fun SyedLogo(
+fun TahaLogo(
     modifier: Modifier = Modifier,
     iconSize: Dp = 64.dp,
     showTagline: Boolean = false,
     textColor: Color = MaterialTheme.colorScheme.onBackground
 ) {
     Column(
-        modifier = modifier.testTag("syed_logo_container"),
+        modifier = modifier.testTag("taha_logo_container"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
                 .size(iconSize)
                 .clip(RoundedCornerShape(iconSize * 0.28f))
-                .background(SyedNavy),
+                .background(Color(0xFF0F172A))
+                .border(
+                    width = 1.5.dp,
+                    color = Color(0xFFFFD700).copy(alpha = 0.5f), // Yellow accent from Taha logo
+                    shape = RoundedCornerShape(iconSize * 0.28f)
+                ),
             contentAlignment = Alignment.Center
         ) {
             Image(
-                painter = painterResource(id = R.drawable.syed_logo),
-                contentDescription = "SYED Logo",
+                painter = painterResource(id = R.drawable.taha_logo),
+                contentDescription = "Taha Logo",
                 modifier = Modifier
-                    .size(iconSize * 0.85f)
+                    .size(iconSize * 0.88f)
                     .clip(RoundedCornerShape(iconSize * 0.22f)),
                 contentScale = ContentScale.Crop
             )
@@ -58,10 +64,10 @@ fun SyedLogo(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "SYED",
+            text = "Taha",
             style = MaterialTheme.typography.headlineMedium.copy(
                 fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp
+                letterSpacing = 1.5.sp
             ),
             color = textColor
         )
@@ -77,4 +83,22 @@ fun SyedLogo(
             )
         }
     }
+}
+
+/**
+ * Backward compatibility alias for TahaLogo
+ */
+@Composable
+fun SyedLogo(
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 64.dp,
+    showTagline: Boolean = false,
+    textColor: Color = MaterialTheme.colorScheme.onBackground
+) {
+    TahaLogo(
+        modifier = modifier,
+        iconSize = iconSize,
+        showTagline = showTagline,
+        textColor = textColor
+    )
 }

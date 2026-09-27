@@ -39,6 +39,14 @@ data class ReceiverProgress(
     val errorMessage: String? = null
 )
 
+data class ConnectionApprovalRequest(
+    val requestId: String,
+    val clientName: String,
+    val clientHost: String,
+    val token: String,
+    val deferred: kotlinx.coroutines.CompletableDeferred<Boolean>
+)
+
 class SyedTransferServer(private val context: Context) {
     companion object {
         private const val TAG = "SyedTransferServer"
@@ -51,7 +59,30 @@ class SyedTransferServer(private val context: Context) {
     private val _receiverProgressMap = MutableStateFlow<Map<String, ReceiverProgress>>(emptyMap())
     val receiverProgressMap: StateFlow<Map<String, ReceiverProgress>> = _receiverProgressMap.asStateFlow()
 
+    private val _pendingApprovalRequest = MutableStateFlow<ConnectionApprovalRequest?>(null)
+    val pendingApprovalRequest: StateFlow<ConnectionApprovalRequest?> = _pendingApprovalRequest.asStateFlow()
+
+    private val _connectedPeerName = MutableStateFlow<String?>(null)
+    val connectedPeerName: StateFlow<String?> = _connectedPeerName.asStateFlow()
+
     private val activeStreams = ConcurrentHashMap<String, Boolean>()
+
+    fun acceptConnectionRequest(requestId: String) {
+        val req = _pendingApprovalRequest.value
+        if (req != null && req.requestId == requestId) {
+            _connectedPeerName.value = req.clientName
+            req.deferred.complete(true)
+            _pendingApprovalRequest.value = null
+        }
+    }
+
+    fun rejectConnectionRequest(requestId: String) {
+        val req = _pendingApprovalRequest.value
+        if (req != null && req.requestId == requestId) {
+            req.deferred.complete(false)
+            _pendingApprovalRequest.value = null
+        }
+    }
 
     fun start(
         scope: CoroutineScope,
@@ -116,7 +147,7 @@ class SyedTransferServer(private val context: Context) {
             val queryParams = parseQueryParams(fullPath.substringAfter("?", ""))
 
             val clientToken = queryParams["token"]
-            val receiverName = queryParams["receiver"] ?: "Nearby Syed"
+            val receiverName = queryParams["receiver"] ?: "Nearby Taha"
             val receiverId = queryParams["receiver_id"] ?: socket.inetAddress.hostAddress ?: "peer"
 
             // Validate token
@@ -130,6 +161,48 @@ class SyedTransferServer(private val context: Context) {
             }
 
             when (path) {
+                "/connect-request" -> {
+                    val clientName = queryParams["client_name"] ?: receiverName
+                    val clientHost = queryParams["client_host"] ?: socket.inetAddress?.hostAddress ?: ""
+                    val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                    val reqId = java.util.UUID.randomUUID().toString()
+                    val approvalReq = ConnectionApprovalRequest(
+                        requestId = reqId,
+                        clientName = clientName,
+                        clientHost = clientHost,
+                        token = clientToken ?: "",
+                        deferred = deferred
+                    )
+                    _pendingApprovalRequest.value = approvalReq
+
+                    val accepted = kotlinx.coroutines.withTimeoutOrNull(30000L) {
+                        deferred.await()
+                    } ?: false
+
+                    if (accepted) {
+                        _connectedPeerName.value = clientName
+                        val resp = JSONObject().apply {
+                            put("status", "ACCEPTED")
+                            put("sessionId", session.sessionId)
+                            put("senderName", session.senderName)
+                            put("token", session.token)
+                        }
+                        sendResponse(out, 200, "application/json", resp.toString().toByteArray())
+                        withContext(Dispatchers.Main) {
+                            onReceiverConnected?.invoke(clientName)
+                        }
+                    } else {
+                        if (_pendingApprovalRequest.value?.requestId == reqId) {
+                            _pendingApprovalRequest.value = null
+                        }
+                        val resp = JSONObject().apply {
+                            put("status", "REJECTED")
+                            put("message", "Connection request was rejected or timed out")
+                        }
+                        sendResponse(out, 403, "application/json", resp.toString().toByteArray())
+                    }
+                }
+
                 "/manifest" -> {
                     val json = JSONObject().apply {
                         put("sessionId", session.sessionId)
@@ -346,6 +419,9 @@ class SyedTransferServer(private val context: Context) {
     }
 
     fun stop() {
+        _pendingApprovalRequest.value?.deferred?.complete(false)
+        _pendingApprovalRequest.value = null
+        _connectedPeerName.value = null
         serverJob?.cancel()
         serverJob = null
         try {

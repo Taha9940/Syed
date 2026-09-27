@@ -17,8 +17,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -45,6 +45,12 @@ data class ClientTransferProgress(
     val errorMessage: String? = null
 )
 
+sealed class ConnectResult {
+    data class Success(val senderName: String, val sessionId: String, val token: String) : ConnectResult()
+    data class Rejected(val message: String) : ConnectResult()
+    data class Error(val message: String) : ConnectResult()
+}
+
 class SyedTransferClient(
     private val context: Context,
     private val historyRepository: TransferHistoryRepository
@@ -62,6 +68,42 @@ class SyedTransferClient(
     @Volatile
     private var isPaused = false
 
+    suspend fun requestConnection(host: String, port: Int, token: String, clientName: String): ConnectResult {
+        return withContext(Dispatchers.IO) {
+            try {
+                val encodedName = java.net.URLEncoder.encode(clientName, "UTF-8")
+                val url = URL("http://$host:$port/connect-request?client_name=$encodedName&token=$token")
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 32000 // wait up to 32 seconds for the user to approve
+                    requestMethod = "GET"
+                }
+
+                val code = connection.responseCode
+                if (code == 200) {
+                    val body = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(body)
+                    if (json.optString("status") == "ACCEPTED") {
+                        val senderName = json.optString("senderName", "Taha User")
+                        val sessionId = json.optString("sessionId", "")
+                        val confirmedToken = json.optString("token", token)
+                        ConnectResult.Success(senderName, sessionId, confirmedToken)
+                    } else {
+                        ConnectResult.Rejected(json.optString("message", "Connection request was declined"))
+                    }
+                } else if (code == 403) {
+                    ConnectResult.Rejected("Connection request was rejected by remote device")
+                } else {
+                    ConnectResult.Error("Connection failed with code $code")
+                }
+            } catch (e: java.net.SocketTimeoutException) {
+                ConnectResult.Rejected("Connection request timed out. No response from remote device.")
+            } catch (e: Exception) {
+                ConnectResult.Error("Could not reach device: ${e.localizedMessage}")
+            }
+        }
+    }
+
     suspend fun fetchManifest(host: String, port: Int, token: String, receiverName: String): Pair<String, List<SessionFileMeta>>? {
         return withContext(Dispatchers.IO) {
             try {
@@ -75,7 +117,7 @@ class SyedTransferClient(
                 if (connection.responseCode == 200) {
                     val body = connection.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(body)
-                    val senderName = json.optString("senderName", "Syed User")
+                    val senderName = json.optString("senderName", "Taha User")
                     val filesArray = json.getJSONArray("files")
                     val fileList = mutableListOf<SessionFileMeta>()
 
@@ -102,6 +144,13 @@ class SyedTransferClient(
         }
     }
 
+    private data class DownloadResult(
+        val success: Boolean,
+        val bytesTransferred: Long,
+        val computedChecksum: String,
+        val errorMessage: String? = null
+    )
+
     suspend fun downloadFiles(
         host: String,
         port: Int,
@@ -115,15 +164,25 @@ class SyedTransferClient(
         isCancelled = false
         isPaused = false
 
-        val downloadDir = getDownloadDirectory()
         var overallSuccess = true
 
         files.forEachIndexed { index, fileMeta ->
             if (isCancelled || !coroutineContext.isActive) return@withContext false
 
-            val targetFile = resolveDestinationFile(downloadDir, fileMeta.name, duplicatePolicy)
-            if (targetFile == null) {
-                // Cancelled due to duplicate policy
+            val destination = PublicMediaStorageHelper.openPendingDestination(
+                context = context,
+                originalName = fileMeta.name,
+                rawMime = fileMeta.mimeType,
+                duplicatePolicy = duplicatePolicy
+            )
+
+            if (destination == null) {
+                if (duplicatePolicy == DuplicatePolicy.CANCEL) {
+                    Log.i(TAG, "Skipping ${fileMeta.name} due to DuplicatePolicy.CANCEL")
+                    return@withContext false
+                }
+                Log.e(TAG, "Failed to open public storage destination for ${fileMeta.name}")
+                overallSuccess = false
                 return@withContext false
             }
 
@@ -131,51 +190,70 @@ class SyedTransferClient(
             val historyId = historyRepository.insertTransfer(
                 TransferEntity(
                     fileId = fileMeta.id,
-                    fileName = targetFile.name,
+                    fileName = destination.finalName,
                     fileSize = fileMeta.size,
-                    mimeType = fileMeta.mimeType,
+                    mimeType = destination.mimeType,
                     direction = TransferDirection.RECEIVED,
                     peerName = senderName,
                     status = TransferStatus.IN_PROGRESS,
-                    filePath = targetFile.absolutePath,
+                    filePath = destination.uri?.toString() ?: destination.tempFile?.absolutePath,
                     checksum = fileMeta.checksum
                 )
             )
 
-            val success = downloadSingleFile(
+            val downloadResult = downloadSingleFile(
                 host = host,
                 port = port,
                 token = token,
                 fileMeta = fileMeta,
-                targetFile = targetFile,
+                destination = destination,
                 fileIndex = index + 1,
                 totalFiles = files.size
             )
 
-            if (success) {
-                // Verify checksum if provided
+            if (downloadResult.success) {
+                // Verify SHA-256 integrity if provided
                 var isIntegrityValid = true
                 if (fileMeta.checksum.isNotBlank()) {
-                    val computedSha = NetworkUtils.calculateSha256(targetFile.inputStream())
-                    if (!computedSha.equals(fileMeta.checksum, ignoreCase = true)) {
+                    if (!downloadResult.computedChecksum.equals(fileMeta.checksum, ignoreCase = true)) {
                         isIntegrityValid = false
-                        Log.e(TAG, "Checksum mismatch for ${targetFile.name}!")
+                        Log.e(
+                            TAG,
+                            "Checksum mismatch for ${destination.finalName}! Expected: ${fileMeta.checksum}, Got: ${downloadResult.computedChecksum}"
+                        )
                     }
                 }
 
                 if (isIntegrityValid) {
-                    historyRepository.updateStatus(historyId, TransferStatus.COMPLETED)
-                    withContext(Dispatchers.Main) {
-                        onFileDownloaded?.invoke(targetFile.name, targetFile)
+                    // Finalize and publish to Android MediaStore / public storage
+                    val publishedFile = PublicMediaStorageHelper.finalizeAndPublish(context, destination)
+                    if (publishedFile != null) {
+                        historyRepository.updateStatusAndPath(
+                            id = historyId,
+                            status = TransferStatus.COMPLETED,
+                            filePath = publishedFile.filePath
+                        )
+                        withContext(Dispatchers.Main) {
+                            onFileDownloaded?.invoke(publishedFile.file.name, publishedFile.file)
+                        }
+                    } else {
+                        overallSuccess = false
+                        PublicMediaStorageHelper.discardPendingFile(context, destination)
+                        historyRepository.updateStatus(historyId, TransferStatus.FAILED, "Failed to publish file to shared storage")
                     }
                 } else {
                     overallSuccess = false
+                    // Clean up corrupted or mismatched file immediately
+                    PublicMediaStorageHelper.discardPendingFile(context, destination)
                     historyRepository.updateStatus(historyId, TransferStatus.FAILED, "Integrity check failed: file corrupted")
                 }
             } else {
                 overallSuccess = false
+                // Clean up incomplete file immediately on failure or cancellation
+                PublicMediaStorageHelper.discardPendingFile(context, destination)
                 val status = if (isCancelled) TransferStatus.CANCELLED else TransferStatus.FAILED
-                historyRepository.updateStatus(historyId, status, "Download interrupted")
+                val errorMsg = if (isCancelled) "Download cancelled" else (downloadResult.errorMessage ?: "Download interrupted")
+                historyRepository.updateStatus(historyId, status, errorMsg)
             }
         }
 
@@ -192,17 +270,10 @@ class SyedTransferClient(
         port: Int,
         token: String,
         fileMeta: SessionFileMeta,
-        targetFile: File,
+        destination: PendingDestination,
         fileIndex: Int,
         totalFiles: Int
-    ): Boolean {
-        var startOffset = 0L
-        if (targetFile.exists() && targetFile.length() < fileMeta.size) {
-            startOffset = targetFile.length() // Resume partial download
-        } else if (targetFile.exists() && targetFile.length() >= fileMeta.size) {
-            targetFile.delete()
-        }
-
+    ): DownloadResult {
         return try {
             val urlStr = "http://$host:$port/download?fileId=${fileMeta.id}&token=$token"
             val url = URL(urlStr)
@@ -210,24 +281,22 @@ class SyedTransferClient(
                 connectTimeout = 10000
                 readTimeout = 30000
                 requestMethod = "GET"
-                if (startOffset > 0) {
-                    setRequestProperty("Range", "bytes=$startOffset-")
-                }
             }
 
             val responseCode = connection.responseCode
             if (responseCode != 200 && responseCode != 206) {
                 Log.e(TAG, "Unexpected response code: $responseCode")
-                return false
+                return DownloadResult(false, 0L, "", "Server returned error code $responseCode")
             }
 
             val inputStream: InputStream = connection.inputStream
-            val outputStream = FileOutputStream(targetFile, startOffset > 0)
+            val outputStream: OutputStream = destination.outputStream
+            val digest = MessageDigest.getInstance("SHA-256")
 
             val buffer = ByteArray(64 * 1024)
-            var bytesTransferred = startOffset
+            var bytesTransferred = 0L
             var lastSampleTime = System.currentTimeMillis()
-            var lastSampleBytes = bytesTransferred
+            var lastSampleBytes = 0L
             var speedBytesPerSec = 0L
 
             var bytesRead = 0
@@ -237,6 +306,7 @@ class SyedTransferClient(
                 }
 
                 outputStream.write(buffer, 0, bytesRead)
+                digest.update(buffer, 0, bytesRead)
                 bytesTransferred += bytesRead
 
                 val now = System.currentTimeMillis()
@@ -252,7 +322,7 @@ class SyedTransferClient(
 
                     _transferProgress.value = ClientTransferProgress(
                         fileId = fileMeta.id,
-                        fileName = targetFile.name,
+                        fileName = destination.finalName,
                         currentFileIndex = fileIndex,
                         totalFiles = totalFiles,
                         bytesTransferred = bytesTransferred,
@@ -264,14 +334,15 @@ class SyedTransferClient(
                 }
             }
 
-            outputStream.flush()
-            outputStream.close()
-            inputStream.close()
+            try { outputStream.flush() } catch (_: Exception) {}
+            try { inputStream.close() } catch (_: Exception) {}
 
-            val success = bytesTransferred >= fileMeta.size
+            val computedChecksum = digest.digest().joinToString("") { "%02x".format(it) }
+            val success = !isCancelled && (fileMeta.size <= 0 || bytesTransferred >= fileMeta.size)
+
             _transferProgress.value = ClientTransferProgress(
                 fileId = fileMeta.id,
-                fileName = targetFile.name,
+                fileName = destination.finalName,
                 currentFileIndex = fileIndex,
                 totalFiles = totalFiles,
                 bytesTransferred = bytesTransferred,
@@ -283,55 +354,20 @@ class SyedTransferClient(
                 isFailed = !success
             )
 
-            success
+            DownloadResult(
+                success = success,
+                bytesTransferred = bytesTransferred,
+                computedChecksum = computedChecksum,
+                errorMessage = if (isCancelled) "Transfer cancelled" else if (!success) "Incomplete file received ($bytesTransferred / ${fileMeta.size} bytes)" else null
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading ${fileMeta.name}", e)
             _transferProgress.value = _transferProgress.value?.copy(
                 isFailed = true,
                 errorMessage = e.localizedMessage
             )
-            false
+            DownloadResult(false, 0L, "", e.localizedMessage)
         }
-    }
-
-    private fun resolveDestinationFile(dir: File, originalName: String, policy: DuplicatePolicy): File? {
-        val candidate = File(dir, originalName)
-        if (!candidate.exists()) return candidate
-
-        return when (policy) {
-            DuplicatePolicy.REPLACE -> {
-                candidate.delete()
-                candidate
-            }
-            DuplicatePolicy.CANCEL -> null
-            DuplicatePolicy.KEEP_BOTH -> {
-                val dotIndex = originalName.lastIndexOf('.')
-                val base = if (dotIndex > 0) originalName.substring(0, dotIndex) else originalName
-                val ext = if (dotIndex > 0) originalName.substring(dotIndex) else ""
-
-                var counter = 1
-                var newFile: File
-                do {
-                    newFile = File(dir, "$base ($counter)$ext")
-                    counter++
-                } while (newFile.exists())
-                newFile
-            }
-        }
-    }
-
-    private fun getDownloadDirectory(): File {
-        val externalDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val syedFolder = File(externalDownloads, "SYED")
-        if (!syedFolder.exists()) {
-            syedFolder.mkdirs()
-        }
-        if (syedFolder.exists() && syedFolder.canWrite()) {
-            return syedFolder
-        }
-        val appFolder = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "SYED")
-        if (!appFolder.exists()) appFolder.mkdirs()
-        return appFolder
     }
 
     fun pause() {

@@ -27,6 +27,9 @@ interface TransferDao {
     @Query("UPDATE transfer_history SET status = :status, errorMessage = :error WHERE id = :id")
     suspend fun updateStatus(id: Long, status: TransferStatus, error: String? = null)
 
+    @Query("UPDATE transfer_history SET status = :status, filePath = :filePath, errorMessage = :error WHERE id = :id")
+    suspend fun updateStatusAndPath(id: Long, status: TransferStatus, filePath: String?, error: String? = null)
+
     @Query("DELETE FROM transfer_history WHERE id = :id")
     suspend fun deleteById(id: Long)
 

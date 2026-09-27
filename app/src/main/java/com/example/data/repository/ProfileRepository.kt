@@ -21,7 +21,7 @@ class ProfileRepository(private val context: Context) {
 
     val userProfile: Flow<UserProfile> = context.dataStore.data.map { prefs ->
         UserProfile(
-            displayName = prefs[KEY_DISPLAY_NAME] ?: "Syed User",
+            displayName = prefs[KEY_DISPLAY_NAME] ?: "Taha User",
             photoUri = prefs[KEY_PHOTO_URI],
             deviceName = prefs[KEY_DEVICE_NAME] ?: (android.os.Build.MODEL ?: "Android Device")
         )

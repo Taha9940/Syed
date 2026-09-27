@@ -70,7 +70,7 @@ fun OnboardingScreen(
     val steps = remember {
         listOf(
             OnboardingStep(
-                title = "Welcome to SYED",
+                title = "Welcome to Taha",
                 description = "Original offline peer-to-peer file sharing built for speed, privacy, and simplicity.",
                 icon = Icons.Default.Share
             ),
@@ -287,7 +287,7 @@ fun OnboardingScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = SyedBlue)
                     ) {
                         Text(
-                            text = "You're Ready — Enter SYED",
+                            text = "You're Ready — Enter Taha",
                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                             color = Color.White
                         )
@@ -295,7 +295,7 @@ fun OnboardingScreen(
 
                     TextButton(
                         onClick = {
-                            onComplete("Syed User", null)
+                            onComplete("Taha User", null)
                         },
                         modifier = Modifier.padding(top = 8.dp)
                     ) {

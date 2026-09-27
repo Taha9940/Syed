@@ -31,7 +31,7 @@ class SettingsRepository(private val context: Context) {
             ThemeMode.SYSTEM
         }
         AppSettings(
-            defaultDownloadFolder = prefs[KEY_DOWNLOAD_FOLDER] ?: "Download/SYED",
+            defaultDownloadFolder = prefs[KEY_DOWNLOAD_FOLDER] ?: "Download/Taha",
             autoAccept = prefs[KEY_AUTO_ACCEPT] ?: false,
             connectionTimeoutSeconds = prefs[KEY_TIMEOUT] ?: 30,
             transferConfirmation = prefs[KEY_CONFIRMATION] ?: true,

@@ -18,6 +18,9 @@ class TransferHistoryRepository(private val dao: TransferDao) {
     suspend fun updateStatus(id: Long, status: TransferStatus, error: String? = null) =
         dao.updateStatus(id, status, error)
 
+    suspend fun updateStatusAndPath(id: Long, status: TransferStatus, filePath: String?, error: String? = null) =
+        dao.updateStatusAndPath(id, status, filePath, error)
+
     suspend fun deleteTransfer(id: Long) = dao.deleteById(id)
 
     suspend fun clearAll() = dao.clearAll()

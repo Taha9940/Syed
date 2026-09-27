@@ -55,10 +55,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.model.ThemeMode
 import com.example.data.model.formatFileSize
 import com.example.network.p2p.DuplicatePolicy
+import com.example.ui.screens.ConnectionHubScreen
+import com.example.ui.screens.CreateSessionScreen
 import com.example.ui.screens.FileManagerScreen
 import com.example.ui.screens.GroupShareScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.JoinSessionScreen
 import com.example.ui.screens.NearbyScreen
 import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.QrConnectScreen
@@ -158,6 +161,9 @@ fun SyedAppRoot(viewModel: SyedMainViewModel) {
     val receiverProgressMap by viewModel.receiverProgressMap.collectAsState()
     val clientTransferProgress by viewModel.clientTransferProgress.collectAsState()
     val nearbyDevices by viewModel.nearbyDevices.collectAsState()
+    val pendingApprovalRequest by viewModel.pendingApprovalRequest.collectAsState()
+    val connectedPeerName by viewModel.connectedPeerName.collectAsState()
+    val isConnectingToPeer by viewModel.isConnectingToPeer.collectAsState()
     val incomingRequest by viewModel.incomingRequest.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
 
@@ -189,11 +195,63 @@ fun SyedAppRoot(viewModel: SyedMainViewModel) {
                     onSendClick = { viewModel.navigateTo(Screen.Send) },
                     onReceiveClick = { viewModel.navigateTo(Screen.Receive) },
                     onScanQrClick = { viewModel.navigateTo(Screen.QrScan) },
-                    onNearbyClick = { viewModel.navigateTo(Screen.Nearby) },
+                    onNearbyClick = { viewModel.navigateTo(Screen.JoinSession) },
                     onFileManagerClick = { viewModel.navigateTo(Screen.FileManager) },
                     onHistoryClick = { viewModel.navigateTo(Screen.History) },
                     onSettingsClick = { viewModel.navigateTo(Screen.Settings) },
-                    onTransferItemClick = { item -> viewModel.openFile(item.filePath) }
+                    onTransferItemClick = { item -> viewModel.openFile(item.filePath) },
+                    onConnectHubClick = { viewModel.navigateTo(Screen.ConnectionHub) },
+                    onCreateClick = { viewModel.startCreateSession() },
+                    onJoinClick = { viewModel.navigateTo(Screen.JoinSession) }
+                )
+            }
+
+            Screen.ConnectionHub -> {
+                ConnectionHubScreen(
+                    userProfile = userProfile,
+                    onBackClick = { viewModel.navigateBack() },
+                    onCreateClick = { viewModel.startCreateSession() },
+                    onJoinClick = { viewModel.navigateTo(Screen.JoinSession) },
+                    onSendClick = { viewModel.navigateTo(Screen.Send) },
+                    onReceiveClick = { viewModel.navigateTo(Screen.QrScan) }
+                )
+            }
+
+            Screen.CreateSession -> {
+                CreateSessionScreen(
+                    userProfile = userProfile,
+                    session = activeSession,
+                    pendingApprovalRequest = pendingApprovalRequest,
+                    connectedPeerName = connectedPeerName,
+                    onBackClick = {
+                        viewModel.stopSenderSession()
+                        viewModel.navigateBack()
+                    },
+                    onAcceptRequest = { reqId ->
+                        viewModel.acceptConnectionApproval(reqId)
+                    },
+                    onRejectRequest = { reqId ->
+                        viewModel.rejectConnectionApproval(reqId)
+                    },
+                    onEnterTransfer = {
+                        viewModel.navigateTo(Screen.Send)
+                    }
+                )
+            }
+
+            Screen.JoinSession -> {
+                JoinSessionScreen(
+                    nearbyDevices = nearbyDevices,
+                    connectingToPeerName = isConnectingToPeer,
+                    onBackClick = {
+                        viewModel.stopNearbyDiscovery()
+                        viewModel.navigateBack()
+                    },
+                    onStartDiscovery = { viewModel.startNearbyDiscovery() },
+                    onStopDiscovery = { viewModel.stopNearbyDiscovery() },
+                    onDeviceSelected = { device ->
+                        viewModel.connectToNearbyPeer(device)
+                    }
                 )
             }
 
@@ -209,8 +267,12 @@ fun SyedAppRoot(viewModel: SyedMainViewModel) {
                     onFileToggled = { viewModel.toggleFileSelection(it) },
                     onFilesAddedFromPicker = { viewModel.addFilesFromUris(it) },
                     onStartQrConnection = { viewModel.startSenderSession(isGroup = false) },
-                    onStartNearbyConnection = { viewModel.navigateTo(Screen.Nearby) },
-                    onStartGroupShare = { viewModel.startSenderSession(isGroup = true) }
+                    onStartNearbyConnection = { viewModel.navigateTo(Screen.JoinSession) },
+                    onStartGroupShare = { viewModel.startSenderSession(isGroup = true) },
+                    onStartCreateConnection = { viewModel.startCreateSession() },
+                    onRefreshMedia = { viewModel.loadDeviceFiles() },
+                    onRemoveFile = { viewModel.removeSelectedFile(it) },
+                    onClearSelected = { viewModel.clearSelectedFiles() }
                 )
             }
 
@@ -247,7 +309,7 @@ fun SyedAppRoot(viewModel: SyedMainViewModel) {
                     userProfile = userProfile,
                     onBackClick = { viewModel.navigateBack() },
                     onScanQrClick = { viewModel.navigateTo(Screen.QrScan) },
-                    onNearbyClick = { viewModel.navigateTo(Screen.Nearby) },
+                    onNearbyClick = { viewModel.navigateTo(Screen.JoinSession) },
                     onStartDiscovery = { viewModel.startNearbyDiscovery() },
                     onStopDiscovery = { viewModel.stopNearbyDiscovery() }
                 )
@@ -260,11 +322,7 @@ fun SyedAppRoot(viewModel: SyedMainViewModel) {
                     onStartDiscovery = { viewModel.startNearbyDiscovery() },
                     onStopDiscovery = { viewModel.stopNearbyDiscovery() },
                     onDeviceSelected = { device ->
-                        if (device.token.isNotBlank()) {
-                            viewModel.connectToSession(device.host, device.port, device.token)
-                        } else {
-                            viewModel.showStatus("Device ${device.name} is available")
-                        }
+                        viewModel.connectToNearbyPeer(device)
                     }
                 )
             }

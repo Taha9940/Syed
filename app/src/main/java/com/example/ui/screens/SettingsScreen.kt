@@ -312,7 +312,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "SYED is built purely for direct offline peer-to-peer sharing. Your files, device details, and transfer logs never touch any remote cloud server or external account.",
+                            text = "Taha is built purely for direct offline peer-to-peer sharing. Your files, device details, and transfer logs never touch any remote cloud server or external account.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp
@@ -368,9 +368,9 @@ fun SettingsScreen(
                 }
             }
 
-            // About SYED
+            // About Taha
             item {
-                SettingsSectionHeader(title = "About SYED", icon = Icons.Default.Info)
+                SettingsSectionHeader(title = "About Taha", icon = Icons.Default.Info)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -390,9 +390,15 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Created by Syed • Fast, Private, Offline",
+                            text = "Designed by Syed Taha",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "Designed in Abu Dhabi, United Arab Emirates",
                             style = MaterialTheme.typography.bodySmall,
                             color = SyedCyan
                         )

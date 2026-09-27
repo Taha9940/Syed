@@ -118,7 +118,7 @@ fun GroupShareScreen(
 
                     Column {
                         Text(
-                            text = session?.groupName ?: "SYED Group",
+                            text = session?.groupName ?: "Taha Group",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onBackground
                         )

@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "SYED"
+rootProject.name = "Taha"
 
 include(":app")
